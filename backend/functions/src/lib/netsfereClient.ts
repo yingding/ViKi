@@ -22,7 +22,9 @@ const netsfereBaseUrl = process.env.NETSFERE_BASE_URL ?? 'https://api.netsfere.c
 const webhookPayloadSchema = z.object({
   convId: z.number().int(),
   msgId: z.number().int(),
-  senderEmail: z.string().email().optional()
+  senderEmail: z.string().email().optional(),
+  msgText: z.string().optional(),
+  msgType: z.string().optional()
 });
 
 export type NetsfereWebhookPayload = z.infer<typeof webhookPayloadSchema>;

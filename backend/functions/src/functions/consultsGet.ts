@@ -2,7 +2,7 @@ import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/fu
 import { getConsult } from '../lib/consultRepository';
 
 async function handler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-  const id = request.params.get('id');
+  const id = request.params?.id;
 
   if (!id) {
     return {

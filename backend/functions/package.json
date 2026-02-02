@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Azure Functions app ingesting NetSfere consults and routing them to specialists.",
+  "main": "dist/index.js",
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.json",
     "lint": "eslint src --ext .ts",

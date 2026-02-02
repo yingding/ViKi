@@ -2,9 +2,11 @@ import { BlobServiceClient, BlockBlobUploadOptions } from '@azure/storage-blob';
 import { getEnv } from './env';
 import type { NetsfereMessage } from './netsfereClient';
 
-const env = getEnv();
-const blobClient = BlobServiceClient.fromConnectionString(env.AzureWebJobsStorage);
-const consultContainer = blobClient.getContainerClient(env.CONSULT_CONTAINER);
+function getContainerClient() {
+  const env = getEnv();
+  const blobClient = BlobServiceClient.fromConnectionString(env.AzureWebJobsStorage);
+  return blobClient.getContainerClient(env.CONSULT_CONTAINER);
+}
 
 export type StoredConsult = {
   id: string;
@@ -24,14 +26,16 @@ export type StoredConsultSummary = {
 };
 
 async function ensureContainer() {
-  await consultContainer.createIfNotExists();
+  const container = getContainerClient();
+  await container.createIfNotExists();
+  return container;
 }
 
 export async function saveConsult(record: StoredConsult) {
-  await ensureContainer();
+  const container = await ensureContainer();
 
   const blobName = `${record.id}.json`;
-  const blockBlob = consultContainer.getBlockBlobClient(blobName);
+  const blockBlob = container.getBlockBlobClient(blobName);
   const body = JSON.stringify(record);
   const options: BlockBlobUploadOptions = {
     blobHTTPHeaders: { blobContentType: 'application/json' },
@@ -47,11 +51,11 @@ export async function saveConsult(record: StoredConsult) {
 }
 
 export async function listConsults(): Promise<StoredConsultSummary[]> {
-  await ensureContainer();
+  const container = await ensureContainer();
 
   const summaries: StoredConsultSummary[] = [];
 
-  for await (const blob of consultContainer.listBlobsFlat()) {
+  for await (const blob of container.listBlobsFlat()) {
     const metadata = blob.metadata ?? {};
     summaries.push({
       id: blob.name.replace('.json', ''),
@@ -67,9 +71,8 @@ export async function listConsults(): Promise<StoredConsultSummary[]> {
 }
 
 export async function getConsult(id: string): Promise<StoredConsult | undefined> {
-  await ensureContainer();
-
-  const blobClientRef = consultContainer.getBlockBlobClient(`${id}.json`);
+  const container = await ensureContainer();
+  const blobClientRef = container.getBlockBlobClient(`${id}.json`);
   if (!(await blobClientRef.exists())) {
     return undefined;
   }

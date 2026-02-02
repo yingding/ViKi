@@ -3,7 +3,7 @@ import { getConsult } from '../lib/consultRepository';
 import { createRealtimeSession } from '../lib/openAiRealtime';
 
 async function handler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
-  const id = request.params.get('id');
+  const id = request.params?.id;
 
   if (!id) {
     return {
