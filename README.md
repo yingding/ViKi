@@ -28,6 +28,7 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
    azurite --silent --location $env:USERPROFILE\$ProjPath --debug $env:USERPROFILE\$ProjPath\debug.log;
    ```
    -->
+   
    Create a `local.settings.json` in `backend/functions` folder to save the config for backend.
    ```
    cd backend/functions
