@@ -20,7 +20,15 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
    - Enable API + webhook for the bot identity (e.g., `botdo@sweethomeonline.de`).
    - Point the webhook to `https://<function-app>.azurewebsites.net/api/netsfere-webhook`.
 3. **Run Backend Locally**
+   Start `Azurite`
+   ```powershell
+   # $ProjPath is the subpath from USERPROFILE to the current virtual clinic repository
+   $ProjPath="Documents\VCS\pocs\virtualclinic";
+   azurite --silent --location $env:USERPROFILE\$ProjPath --debug $env:USERPROFILE\$ProjPath\debug.log;
+   ```
+
    Create a `local.settings.json` in `backend/functions` folder to save the config for backend.
+
    ```
    cd backend/functions
    npm install
@@ -39,3 +47,12 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
 - Add attachment ingestion + storage binding in the backend.
 - Integrate Azure Speech + GPT-4o for real-time conversational reviews.
 - Harden credential management by sourcing NetSfere secrets from Key Vault.
+
+## Netsfere api doc
+* netsfere api doc: https://api.netsfere.com
+
+## Manual Installation
+```
+npm install --save-dev azurite
+```
+
