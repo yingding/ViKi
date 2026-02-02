@@ -23,10 +23,18 @@ Azure Functions codebase that ingests NetSfere consults and forwards them to dow
    npm start
    ```
 4. Use a tool like `curl` to POST sample webhook payloads:
-   ```
-   curl -X POST http://localhost:7071/api/netsfere-webhook \
+   In Bash:
+   ```bash
+   curl -X POST http://localhost:7071/api/netsfere/webhook \
      -H "Content-Type: application/json" \
      -d '{"convId":27848,"msgId":212619,"senderEmail":"physician@example.com"}'
+   ```
+   or Powershell
+   ```powershell
+   Invoke-RestMethod -Uri "http://localhost:7071/api/netsfere/webhook" `
+     -Method Post `
+     -Headers @{ "Content-Type" = "application/json" } `
+     -Body '{"convId":27848,"msgId":212619,"senderEmail":"physician@example.com"}'
    ```
 
 > Ensure `local.settings.json` contains temporary NetSfere credentials and a Service Bus connection string for local testing only.
