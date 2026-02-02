@@ -20,6 +20,7 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
    - Enable API + webhook for the bot identity (e.g., `botdo@sweethomeonline.de`).
    - Point the webhook to `https://<function-app>.azurewebsites.net/api/netsfere-webhook`.
 3. **Run Backend Locally**
+   Create a `local.settings.json` in `backend/functions` folder to save the config for backend.
    ```
    cd backend/functions
    npm install
