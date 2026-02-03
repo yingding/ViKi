@@ -55,5 +55,9 @@ Invoke-RestMethod -Uri "https://api.netsfere.com/get" `
     -Body $body
 ```
 Note:`
-* use `web.netsfere.com` to see the convID from the webbrowser, or use `convId="0"` and `msgId="0"` to get all the messages for the user with given email.  
+* use `web.netsfere.com` to see the convID from the webbrowser, or use `convId="0"` and `msgId="0"` to get all the messages for the user with given email.
+
+
+Use Voice Live API JavaScript Preview SDK:
+* https://learn.microsoft.com/en-us/javascript/api/overview/azure/ai-voicelive-readme?view=azure-node-preview#models-and-capabilities
 
