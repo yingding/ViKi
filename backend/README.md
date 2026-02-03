@@ -60,4 +60,27 @@ Note:`
 
 Use Voice Live API JavaScript Preview SDK:
 * https://learn.microsoft.com/en-us/javascript/api/overview/azure/ai-voicelive-readme?view=azure-node-preview#models-and-capabilities
+* https://github.com/MicrosoftDocs/azure-docs-sdk-node/blob/main/docs-ref-services/preview/ai-voicelive-readme.md
 
+```
+npm install @azure/ai-voicelive @azure/identity
+npm install --save-dev @azure/ai-voicelive @azure/identity
+```
+
+## Run tests
+```
+cd backend/functions
+npx tsx test/manual_test_voicelive.ts
+```
+
+## Install sox
+```
+WARNING: 'sox' command not found in PATH.
+ The 'mic' library requires SoX on Windows/Mac or ALSA on Linux.
+ Microphone recording will be DISABLED.
+ To enable, install SoX (http://sox.sourceforge.net/) and add to PATH.
+```
+
+```
+winget install -e --id ChrisBagwell.SoX
+```
