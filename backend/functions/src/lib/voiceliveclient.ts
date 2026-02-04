@@ -4,6 +4,28 @@ import { VoiceLiveClient, VoiceLiveSession } from '@azure/ai-voicelive';
 import { DefaultAzureCredential } from "@azure/identity";
 import { getEnv } from './env';
 import type { StoredConsult } from './consultRepository';
+import * as fs from 'fs';
+import * as path from 'path';
+
+export function logToDebug(msg: string) {
+  try {
+    // Separate log file to avoid Azurite lock contention
+    const logPath = path.resolve(process.cwd(), '../../app.log');
+    
+    // Fallback if CWD is weird
+    const fallbackPath = 'C:\\Users\\yingdingwang\\Documents\\VCS\\pocs\\virtualclinic\\app.log';
+    
+    const entry = `${new Date().toISOString()} [VoiceLiveClient] ${msg}\n`;
+    
+    try {
+        fs.appendFileSync(logPath, entry);
+    } catch {
+        fs.appendFileSync(fallbackPath, entry);
+    }
+  } catch(e) {
+     // console.error(e);
+  }
+}
 
 export async function createVoiceLiveSession(consult: StoredConsult, callbacks?: { 
   onAudioData?: (data: Uint8Array) => void;
@@ -15,7 +37,7 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
 
   // MOCK MODE: If endpoint contains "mock" or if forced
   if (env.FOUNDRY_RESOURCE_ENDPOINT.includes('mock') || process.env.USE_MOCK_VOICE === 'true') {
-      console.log(' [VoiceLive] Using MOCK Session');
+      logToDebug('Using MOCK Session (forced or mock endpoint)');
       return createMockSession(callbacks);
   }
 
@@ -25,14 +47,15 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
   // Create the VoiceLive client
   let session;
   try {
-      console.log(`[VoiceLive] Connect: Initializing client for ${endpoint}`);
+      logToDebug(`Connect: Initializing client for ${endpoint}`);
       const client = new VoiceLiveClient(endpoint, credential);
       
-      console.log(`[VoiceLive] Connect: Calling startSession('${env.VOICELIVE_REALTIME_DEPLOYMENT}')...`);
+      logToDebug(`Connect: Calling startSession('${env.VOICELIVE_REALTIME_DEPLOYMENT}')...`);
       const startTime = Date.now();
       session = await client.startSession(env.VOICELIVE_REALTIME_DEPLOYMENT);
-      console.log(`[VoiceLive] Connect: Connected successfully in ${Date.now() - startTime}ms`);
+      logToDebug(`Connect: Connected successfully in ${Date.now() - startTime}ms`);
   } catch (err: any) {
+      logToDebug(`Connection failed (${err.message}). Falling back to MOCK session.`);
       console.warn(`[VoiceLive] Connection failed (${err.message}). Falling back to MOCK session.`);
       return createMockSession(callbacks);
   }
@@ -133,7 +156,7 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
 
     // Handle user speech start (barge-in)
     onInputAudioBufferSpeechStarted: async (event, context) => {
-       console.log(" [Speech Started Detected] ");
+       logToDebug(" [Speech Started Detected] ");
        if (callbacks?.onInputStarted) {
          callbacks.onInputStarted();
        }
@@ -141,12 +164,12 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
 
     onResponseTextDelta: async (event, context) => {
       // Handle incoming text deltas
-      console.log("Assistant:", event.delta);
+      logToDebug("Assistant: " + event.delta);
     },
 
     onConversationItemInputAudioTranscriptionCompleted: async (event, context) => {
       // Handle user speech transcription
-      console.log("User said:", event.transcript);
+      logToDebug("User said: " + event.transcript);
     },
   });
 
@@ -179,6 +202,14 @@ async function getWeatherData(location: string) {
  * @param audioData The audio data to send.
  */
 export async function sendAudioInput(session: VoiceLiveSession, audioData: ArrayBuffer | Uint8Array) {
+  logToDebug(`Sending ${audioData.byteLength} bytes to VoiceLive session`);
+  
+  // Debug: Write audio to file to verify quality/rate
+  try {
+      const debugPcmPath = path.resolve(process.cwd(), '../../debug_received.pcm');
+      fs.appendFileSync(debugPcmPath, new Uint8Array(audioData));
+  } catch(e) {}
+
   await session.sendAudio(audioData);
 }
 

@@ -1,0 +1,6 @@
+: keep-alive
+
+data: {"t":"ready"}
+
+data: {"t":"audio","d":"VGVzdEF1ZGlvRGF0YQ=="}
+

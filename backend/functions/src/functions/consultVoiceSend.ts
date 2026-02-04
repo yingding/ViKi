@@ -1,14 +1,34 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
 import { SessionManager } from '../lib/voiceSessionManager';
-import { sendAudioInput } from '../lib/voiceliveclient';
+import { sendAudioInput, logToDebug } from '../lib/voiceliveclient';
+import * as fs from 'fs';
+import * as path from 'path';
+
+function logVoiceSend(msg: string) {
+    try {
+        const logPath = path.resolve(process.cwd(), '../../app.log');
+        const fallbackPath = 'C:\\Users\\yingdingwang\\Documents\\VCS\\pocs\\virtualclinic\\app.log';
+        const entry = `${new Date().toISOString()} [VoiceSend] ${msg}\n`;
+        try {
+            fs.appendFileSync(logPath, entry);
+        } catch {
+             fs.appendFileSync(fallbackPath, entry);
+        }
+    } catch (e) {
+    }
+}
 
 export async function handler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
     const id = request.params?.id;
+    logVoiceSend(`Hit handler for ${id}`); 
+    
     if (!id) return { status: 400, jsonBody: { error: 'Missing consult id' } };
 
     try {
         const active = SessionManager.get(id);
+        
         if (!active) {
+            logVoiceSend(`No active session found for ${id}. Available: ${SessionManager.listKeys().join(', ')}`);
             return { status: 404, jsonBody: { error: 'No active session. Connect to voice-listen first.' } };
         }
 
@@ -42,10 +62,12 @@ export async function handler(request: HttpRequest, context: InvocationContext):
 
         if (audioData.byteLength > 0) {
             context.log(`[VoiceSend] Received ${audioData.byteLength} bytes. Sending to session...`);
+            logToDebug(`[VoiceSend] Received ${audioData.byteLength} bytes for consult ${id}. Sending to VoiceLive...`);
             // Send to session
             await sendAudioInput(active.session, audioData);
         } else {
             context.warn(`[VoiceSend] Received empty body.`);
+            logToDebug(`[VoiceSend] Received empty body for consult ${id}.`);
         }
 
         return { status: 200 };

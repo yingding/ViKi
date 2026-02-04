@@ -9,7 +9,7 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
 | `infra/` | Bicep templates for Azure resources (Functions, Service Bus, Key Vault, Storage, App Insights). |
 | `backend/` | Azure Functions TypeScript app handling NetSfere webhooks and queueing consults. |
 | `frontend/` | Next.js specialist portal MVP. |
-| `docs/` | Architecture notes and operational guidance. |
+| `docs/` | Architecture notes and operational guidance. <br/> - [Streaming Technical Insights](docs/technical_insights_streaming.md) |
 
 ## Quickstart
 
@@ -46,7 +46,7 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
 ### Start All Services (One-Click)
 Start both Backend (Functions + Azurite) and Frontend (Next.js) with a single script:
 ```powershell
-.\start_project.ps1
+.\restart_project.ps1
 ```
 *Note: This script automatically configures the backend for HTTPS (required for voice streaming) and enables Mock Voice mode by default.*
 

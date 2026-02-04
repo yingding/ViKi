@@ -13,6 +13,7 @@ interface ActiveSession {
 const sessions = new Map<string, ActiveSession>();
 
 export const SessionManager = {
+    listKeys: () => Array.from(sessions.keys()),
     register: (consultId: string, session: VoiceLiveSession) => {
         sessions.set(consultId, {
             session,

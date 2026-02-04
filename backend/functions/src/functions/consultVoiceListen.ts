@@ -1,15 +1,45 @@
 import { app, HttpRequest, HttpResponseInit, InvocationContext } from '@azure/functions';
+import { Readable, PassThrough } from 'stream';
 import { getConsult } from '../lib/consultRepository';
-import { createVoiceLiveSession } from '../lib/voiceliveclient';
+import { createVoiceLiveSession, logToDebug } from '../lib/voiceliveclient';
 import { SessionManager } from '../lib/voiceSessionManager';
 
 export async function handler(request: HttpRequest, context: InvocationContext): Promise<HttpResponseInit> {
     const id = request.params?.id;
+    logToDebug(`[VoiceListen] Handler invoked for consultId: ${id}`);
     context.log(`[VoiceListen] Handler invoked for consultId: ${id}`);
     if (!id) return { status: 400, jsonBody: { error: 'Missing consult id' } };
 
+
+    // DEBUG: SIMPLE STREAM TEST (Standard Web API Pattern)
+    if (id === 'debug-stream') {
+        const stream = new ReadableStream({
+            async start(controller) {
+                // Send initial keep-alive
+                controller.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
+                
+                for (let i = 0; i < 10; i++) {
+                    const msg = `data: {"count": ${i}, "ts": "${new Date().toISOString()}"}\n\n`;
+                    controller.enqueue(new TextEncoder().encode(msg));
+                    await new Promise(r => setTimeout(r, 500)); // 500ms delay
+                }
+                controller.close();
+            }
+        });
+
+        return { 
+            status: 200,
+            headers: { 
+                 'Content-Type': 'text/event-stream; charset=utf-8',
+                 'Cache-Control': 'no-cache, no-transform',
+                 'X-Accel-Buffering': 'no'
+             },
+            body: stream as any
+        };
+    }
+
     try {
-        context.log(`[VoiceListen] Fetching consult ${id}...`);
+        logToDebug(`[VoiceListen] Fetching consult ${id}...`);
         
         let consult;
         if (id === '0-0') {
@@ -37,96 +67,80 @@ export async function handler(request: HttpRequest, context: InvocationContext):
             return { status: 404, jsonBody: { error: 'Consult not found' } };
         }
 
-        // 1. Create Readable Stream (The Downlink)
-        // Direct control via controller avoids TransformStream buffering/deadlock issues
-        let streamController: ReadableStreamDefaultController<any>;
-        let hbInterval: any;
+        // Connect to VoiceSession
+        let hbInterval: NodeJS.Timeout;
 
-        const readable = new ReadableStream({
-            start(controller) {
-                streamController = controller;
-            },
-            cancel() {
-                console.log("[VoiceListen] Stream cancelled by client");
-                clearInterval(hbInterval); // STOP HEARTBEAT
-                SessionManager.remove(id).catch(e => console.error(e));
-            }
-        });
+        const stream = new ReadableStream({
+            async start(controller) {
+                // 0. Initial Open
+                controller.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
 
-        // 2. Clear previous session if exists
-        await SessionManager.remove(id);
-
-        // ... Session creation ...
-        context.log(`[VoiceListen] Creating VoiceLive session for ${id}...`);
-        const session = await createVoiceLiveSession(consult, {
-            onAudioData: async (data) => {
-                const s = SessionManager.get(id);
-                if (s && s.outputController) {
+                // 1. Setup Heartbeat
+                hbInterval = setInterval(() => {
                     try {
-                        console.log(`[VoiceListen] Enqueuing ${data.byteLength} bytes`);
-                        s.outputController.enqueue(data);
+                        controller.enqueue(new TextEncoder().encode(": keep-alive\n\n"));
                     } catch (e) {
-                         console.warn("[VoiceListen] Failed to enqueue chunk (closed?)", e);
+                         // Stream closed
                          clearInterval(hbInterval);
                     }
+                }, 10000);
+
+                try {
+                     // 2. Setup Session
+                     await SessionManager.remove(id); // Clean any stale session
+                     
+                     const session = await createVoiceLiveSession(consult, {
+                        onAudioData: (data) => {
+                             try {
+                                const b64 = Buffer.from(data).toString('base64');
+                                const msg = `data: ${JSON.stringify({ t: 'audio', d: b64 })}\n\n`;
+                                controller.enqueue(new TextEncoder().encode(msg));
+                             } catch (e) {
+                                 // Controller closed or error
+                                 context.warn(`[VoiceListen] Error enqueueing audio: ${e}`);
+                             }
+                        },
+                        onInputStarted: () => {
+                             try {
+                                const msg = `data: ${JSON.stringify({ t: 'clear' })}\n\n`;
+                                controller.enqueue(new TextEncoder().encode(msg));
+                             } catch (e) { /* ignore */ }
+                        }
+                     });
+
+                     SessionManager.register(id, session);
+                     
+                     // Attach controller to session manager to allow external closing
+                     SessionManager.attachController(id, controller);
+
+                     // 3. Send Ready
+                     controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ t: 'ready' })}\n\n`));
+
+                } catch (err: any) {
+                    context.error(`[VoiceListen] Setup failed: ${err}`);
+                    controller.error(err);
+                    clearInterval(hbInterval);
                 }
             },
-            onInputStarted: () => {
-                console.log("[VoiceListen] User started speaking (VAD)");
+            cancel() {
+                context.log(`[VoiceListen] Stream cancelled for ${id}`);
+                clearInterval(hbInterval);
+                SessionManager.remove(id).catch(e => context.error(e));
             }
         });
 
-        // 4. Register Session
-        console.log(`[VoiceListen] Session created. Registering...`);
-        SessionManager.register(id, session);
-        SessionManager.attachController(id, streamController!);
-        
-        // Send initial silence to flush headers and unblock client
-        // Doing this asynchronously to ensure headers are sent first, after the response object is returned
-        setTimeout(() => {
-            const FLUSH_SIZE = 64 * 1024; 
-            const silence = new Uint8Array(FLUSH_SIZE).fill(0); 
-            
-            try {
-                 streamController!.enqueue(silence);
-                 console.log(`[VoiceListen] Flushed ${FLUSH_SIZE} bytes of silence.`);
-            } catch(e) { 
-                console.warn("[VoiceListen] Flush failed", e);
-            }
-            
-            // Setup Heartbeat
-            console.log("[VoiceListen] Starting heartbeat...");
-             hbInterval = setInterval(() => {
-                try {
-                    const ping = new Uint8Array(32).fill(0);
-                    streamController!.enqueue(ping);
-                } catch (e) {
-                    clearInterval(hbInterval);
-                }
-            }, 50);
-        }, 50);
-
-        context.log(`[VoiceListen] Stream established. Returning 200 OK.`);
-
-        // Force a specific internal error if controller missing
-        if (!streamController!) {
-             context.error("[VoiceListen] Stream controller not initialized!");
-             return { status: 500, body: "Stream error" };
-        }
-
-        // Direct return of readable
         return {
             status: 200,
             headers: {
-                'Content-Type': 'application/octet-stream',
-                'Cache-Control': 'no-store',
-                'X-Content-Type-Options': 'nosniff'
-                // Removed manual CORS headers to avoid conflict with Host.CORS
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache, no-transform',
+                'X-Accel-Buffering': 'no'
             },
-            body: readable as any
+            body: stream as any
         };
 
-    } catch (error) {
+    } catch (error: any) {
+        logToDebug(`[VoiceListen] CRITICAL ERROR for ${id}: ${error.message} \nStack: ${error.stack}`);
         context.error(`[VoiceListen] Error ${id}`, error);
         return { status: 500, jsonBody: { error: 'Internal server error' } };
     }
