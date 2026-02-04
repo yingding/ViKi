@@ -257,7 +257,9 @@ async function runTest() {
             }
 
             // 2. Barge-in Logic
-            const BARGE_IN_RMS_THRESHOLD = 500; 
+            // INCREASED THRESHOLD: 2000 to prevent echo causing false barge-in
+            // This helps to Barge-in only on deliberate loud speech.
+            const BARGE_IN_RMS_THRESHOLD = 2000; 
             
             if (timeLeft > -safetyMargin) {
                 // Speaker is active. Default is MUTE.

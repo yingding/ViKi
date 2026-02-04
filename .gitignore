@@ -7,3 +7,4 @@ local.settings.json
 **/node_modules
 **/.next
 **/dist
+debug.log
