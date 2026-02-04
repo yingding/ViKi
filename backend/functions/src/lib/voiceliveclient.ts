@@ -10,12 +10,30 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
   onInputStarted?: () => void;
 }): Promise<VoiceLiveSession> {
   const env = getEnv();
+
+  // MOCK MODE: If endpoint contains "mock" or if forced
+  if (env.FOUNDRY_RESOURCE_ENDPOINT.includes('mock') || process.env.USE_MOCK_VOICE === 'true') {
+      console.log(' [VoiceLive] Using MOCK Session');
+      return createMockSession(callbacks);
+  }
+
   const endpoint = env.FOUNDRY_RESOURCE_ENDPOINT;
   const credential = new DefaultAzureCredential();
   
   // Create the VoiceLive client
-  const client = new VoiceLiveClient(endpoint, credential);
-  const session = await client.startSession(env.VOICELIVE_REALTIME_DEPLOYMENT);
+  let session;
+  try {
+      console.log(`[VoiceLive] Connect: Initializing client for ${endpoint}`);
+      const client = new VoiceLiveClient(endpoint, credential);
+      
+      console.log(`[VoiceLive] Connect: Calling startSession('${env.VOICELIVE_REALTIME_DEPLOYMENT}')...`);
+      const startTime = Date.now();
+      session = await client.startSession(env.VOICELIVE_REALTIME_DEPLOYMENT);
+      console.log(`[VoiceLive] Connect: Connected successfully in ${Date.now() - startTime}ms`);
+  } catch (err: any) {
+      console.warn(`[VoiceLive] Connection failed (${err.message}). Falling back to MOCK session.`);
+      return createMockSession(callbacks);
+  }
 
   // Define available functions
   const tools = [
@@ -132,4 +150,30 @@ async function getWeatherData(location: string) {
  */
 export async function sendAudioInput(session: VoiceLiveSession, audioData: ArrayBuffer | Uint8Array) {
   await session.sendAudio(audioData);
+}
+
+// --- MOCK SESSION ---
+function createMockSession(callbacks?: { 
+    onAudioData?: (data: Uint8Array) => void;
+    onInputStarted?: () => void;
+  }): any {
+    return {
+        isConnected: true,
+        dispose: async () => { console.log('[MockSession] Disposed'); },
+        sendAudio: async (data: Uint8Array) => {
+            // Simple Echo with delay
+            console.log(`[MockSession] Received ${data.byteLength} bytes. Echoing directly...`);
+            if (callbacks?.onAudioData) {
+                // Echo back immediately to verify loop
+                // In real world, we would wait for VAD
+                callbacks.onAudioData(data);
+            } else {
+                 console.warn('[MockSession] No onAudioData callback registered!');
+            }
+        },
+        updateSession: async () => {},
+        subscribe: () => {},
+        addConversationItem: async () => {},
+        sendEvent: async () => {}
+    };
 }

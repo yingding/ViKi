@@ -3,9 +3,12 @@ import { API_BASE_URL } from './config';
 import type { ConsultSummary, ConsultDetail } from './types';
 
 const fetcher = async <T>(input: string): Promise<T> => {
+  console.log(`[SWR] Fetching ${input}`);
   const res = await fetch(input);
   if (!res.ok) {
-    throw new Error(await res.text());
+    const err = await res.text();
+    console.error(`[SWR] Error fetching ${input}: ${res.status}`, err);
+    throw new Error(err);
   }
   return res.json() as Promise<T>;
 };

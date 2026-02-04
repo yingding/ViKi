@@ -53,10 +53,14 @@ async function runTest() {
     };
 
     // Audio Output - Save to disk
-    const outputFilePath = path.join(process.cwd(), 'output_audio.pcm');
+    const testDir = path.join(process.cwd(), 'test');
+    if (!fs.existsSync(testDir)) {
+        fs.mkdirSync(testDir, { recursive: true });
+    }
+    const outputFilePath = path.join(testDir, 'output_audio.pcm');
     const outputStream = fs.createWriteStream(outputFilePath);
     console.log(`Audio output will be saved to: ${outputFilePath}`);
-    console.log('To play raw PCM: ffplay -f s16le -ar 24000 -ac 1 output_audio.pcm');
+    console.log(`To play raw PCM: ffplay -f s16le -ar 24000 -ac 1 test/output_audio.pcm`);
 
     // Audio Playback Setup (Full-Duplex)
     let speakerProcess: child_process.ChildProcessWithoutNullStreams | null = null;

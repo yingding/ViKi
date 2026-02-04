@@ -43,6 +43,20 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
    npm run dev
    ```
 
+### Start All Services (One-Click)
+Start both Backend (Functions + Azurite) and Frontend (Next.js) with a single script:
+```powershell
+.\start_project.ps1
+```
+*Note: This script automatically configures the backend for HTTPS (required for voice streaming) and enables Mock Voice mode by default.*
+
+#### Troubleshooting Voice Connectivity
+If you see connection errors when starting a voice session:
+1. Ensure the backend is running on **HTTPS** (Port 7071).
+2. Visit `https://localhost:7071/api/consults` in your browser.
+3. Accept the self-signed certificate warning ("Proceed to localhost (unsafe)").
+4. Restart the session in the portal.
+
 ## Next Steps
 - Replace mock data in the portal with a REST endpoint sourcing Service Bus output.
 - Add attachment ingestion + storage binding in the backend.
