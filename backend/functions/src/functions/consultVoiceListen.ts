@@ -82,18 +82,21 @@ export async function handler(request: HttpRequest, context: InvocationContext):
         SessionManager.attachController(id, streamController!);
         
         // Send initial silence to flush headers and unblock client
-        // Doing this asynchronously to ensure headers are sent first
+        // Doing this asynchronously to ensure headers are sent first, after the response object is returned
         setTimeout(() => {
             const FLUSH_SIZE = 64 * 1024; 
             const silence = new Uint8Array(FLUSH_SIZE).fill(0); 
+            
             try {
-                streamController!.enqueue(silence);
-                console.log(`[VoiceListen] Flushed ${FLUSH_SIZE} bytes of silence.`);
-            } catch(e) { console.error("Flush failed", e); }
-
-            // HEARTBEAT
+                 streamController!.enqueue(silence);
+                 console.log(`[VoiceListen] Flushed ${FLUSH_SIZE} bytes of silence.`);
+            } catch(e) { 
+                console.warn("[VoiceListen] Flush failed", e);
+            }
+            
+            // Setup Heartbeat
             console.log("[VoiceListen] Starting heartbeat...");
-            hbInterval = setInterval(() => {
+             hbInterval = setInterval(() => {
                 try {
                     const ping = new Uint8Array(32).fill(0);
                     streamController!.enqueue(ping);
@@ -101,9 +104,15 @@ export async function handler(request: HttpRequest, context: InvocationContext):
                     clearInterval(hbInterval);
                 }
             }, 50);
-        }, 100);
+        }, 50);
 
         context.log(`[VoiceListen] Stream established. Returning 200 OK.`);
+
+        // Force a specific internal error if controller missing
+        if (!streamController!) {
+             context.error("[VoiceListen] Stream controller not initialized!");
+             return { status: 500, body: "Stream error" };
+        }
 
         // Direct return of readable
         return {
@@ -111,10 +120,8 @@ export async function handler(request: HttpRequest, context: InvocationContext):
             headers: {
                 'Content-Type': 'application/octet-stream',
                 'Cache-Control': 'no-store',
-                'X-Content-Type-Options': 'nosniff',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET, OPTIONS',
-                'Access-Control-Allow-Headers': '*'
+                'X-Content-Type-Options': 'nosniff'
+                // Removed manual CORS headers to avoid conflict with Host.CORS
             },
             body: readable as any
         };

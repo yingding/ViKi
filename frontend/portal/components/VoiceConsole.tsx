@@ -155,14 +155,9 @@ export function VoiceConsole({ consultId }: Props) {
         setStatus('live');
 
         // Execute Listen in background (don't await) to prevent UI blocking
-        fetch(listenUrl, { 
-            method: 'GET',
-            cache: 'no-store',
-            headers: { 'Pragma': 'no-cache' } 
-        }).then(async (response) => {
+        const listenUrlParams = listenUrl + '?_t=' + Date.now();
+        fetch(listenUrlParams).then(async (response) => {
             console.log(`[VoiceConsole] Listen status: ${response.status}`);
-            response.headers.forEach((val, key) => console.log(`[VoiceConsole] Header: ${key}=${val}`));
-
             if (!response.ok) {
                  throw new Error("Failed to connect down-link");
             }
@@ -200,9 +195,23 @@ export function VoiceConsole({ consultId }: Props) {
   };
 
   const playAudioChunk = (data: Uint8Array, ctx: AudioContext) => {
-      if (ctx.state === 'suspended') {
-          ctx.resume();
+      if (ctx.state === 'closed') {
+          console.warn("[VoiceConsole] Context is closed, skipping chunk play");
+          return;
       }
+      if (ctx.state === 'suspended') {
+          ctx.resume().catch(e => console.warn("Resume failed", e));
+      }
+
+      // Check for HTML error response disguised as audio
+      if (data.length > 0 && data[0] === 60) { // '<' character
+          const text = new TextDecoder().decode(data.slice(0, 100));
+          if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+              console.error("[VoiceConsole] Received HTML instead of Audio:", text);
+              return;
+          }
+      }
+
       console.log(`[VoiceConsole] Received audio chunk: ${data.byteLength} bytes`);
 
       // Decode Int16 -> Float32
@@ -224,18 +233,22 @@ export function VoiceConsole({ consultId }: Props) {
       // Update visual volume (decay handled by react re-renders or next chunk)
       setIncomingVolume(Math.min(100, rms * 500)); // Amplify for display
 
-      const buffer = ctx.createBuffer(1, float32.length, 24000);
-      buffer.getChannelData(0).set(float32);
+      try {
+        const buffer = ctx.createBuffer(1, float32.length, 24000);
+        buffer.getChannelData(0).set(float32);
 
-      const src = ctx.createBufferSource();
-      src.buffer = buffer;
-      src.connect(ctx.destination);
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.connect(ctx.destination);
 
-      const now = ctx.currentTime;
-      // Schedule playback
-      const startTime = Math.max(now, nextStartTimeRef.current);
-      src.start(startTime);
-      nextStartTimeRef.current = startTime + buffer.duration;
+        const now = ctx.currentTime;
+        // Schedule playback
+        const startTime = Math.max(now, nextStartTimeRef.current);
+        src.start(startTime);
+        nextStartTimeRef.current = startTime + buffer.duration;
+      } catch (e) {
+          console.warn("[VoiceConsole] Playback error:", e);
+      }
   };
 
   const stopSession = () => {
