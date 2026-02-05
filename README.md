@@ -37,6 +37,12 @@ Minimal viable product for a virtual pediatric clinic that ingests secure NetSfe
    ```
 
 ### Start All Services (One-Click)
+You need to install npm module for both backend and frontend
+You can recompile and build the module with:
+```powershell
+.\recompile.ps1
+```
+
 Start both Backend (Functions + Azurite) and Frontend (Next.js) with a single script:
 ```powershell
 .\restart_project.ps1
@@ -63,4 +69,14 @@ If you see connection errors when starting a voice session:
 ```
 npm install --save-dev azurite
 ```
+
+## Demo Case
+```
+what is the weather in Seattle?
+what is the weather in Munich?
+```
+
+Note:
+* show the function calling capability. "SanFranciso" give the model some issue to call the weather function
+
 

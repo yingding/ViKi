@@ -122,6 +122,10 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
   const sessionIdRef = useRef<number>(0); // Increment on each start to ignore stale events
   const downlinkReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
+  // Meter-specific refs (visual only, independent of audio processing)
+  const micMeterFloorRef = useRef<number>(0.0005); // Lower floor for visual (separate from audio gate)
+  const lastIncomingActivityRef = useRef<number>(0); // Timestamp of last significant incoming audio
+
   const stopPlayback = useCallback((ctx: AudioContext) => {
     console.log("[VoiceConsole] Interrupt! Stopping playback (Barge-in)");
     
@@ -401,19 +405,31 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
              const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
              analyserRef.current.getByteTimeDomainData(dataArray);
              
-             // Calculate RMS
+             // Calculate RMS with DC removal
              let sum = 0;
+             let dcSum = 0;
              for(let i = 0; i < dataArray.length; i++) {
-                 // Convert 128-center byte to -1..1 float
                  const float = (dataArray[i] - 128) / 128.0; 
+                 dcSum += float;
+             }
+             const dcOffset = dcSum / dataArray.length;
+             for(let i = 0; i < dataArray.length; i++) {
+                 const float = (dataArray[i] - 128) / 128.0 - dcOffset; // Remove DC
                  sum += float * float;
              }
              const rms = Math.sqrt(sum / dataArray.length);
              
-             // Incoming meter: Calibrated multiplier + show buffering state
-             // Reduced from 400*100 to avoid saturation
-             const incomingMeter = isPlayingRef.current ? (rms * 200 * 100) : (rms * 50 * 100); // Lower when buffering
-             setIncomingVolume(v => v * 0.7 + Math.min(100, incomingMeter) * 0.3); // Smoother blend
+             // Incoming meter: Normalized to target RMS for consistent visual
+             // Target ~0.1 RMS for full meter, with activity-based decay
+             const INCOMING_TARGET_RMS = 0.08;
+             const now = Date.now();
+             if (rms > 0.005) {
+                 lastIncomingActivityRef.current = now;
+             }
+             const timeSinceActivity = now - lastIncomingActivityRef.current;
+             const activityDecay = timeSinceActivity > 200 ? Math.max(0, 1 - (timeSinceActivity - 200) / 300) : 1;
+             const normalizedIncoming = Math.min(100, (rms / INCOMING_TARGET_RMS) * 100 * activityDecay);
+             setIncomingVolume(v => v * 0.7 + normalizedIncoming * 0.3);
              
              animationFrameRef.current = requestAnimationFrame(updateVisuals);
         };
@@ -588,11 +604,19 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
             newBuffer.set(new Uint8Array(int16.buffer), pcmBuffer.length);
             pcmBuffer = newBuffer;
 
-            // Visual Mic Volume - compute from noise-floor-adjusted RMS
-            // Subtract noise floor for accurate meter (prevents stuck-high meter)
-            const adjustedRms = Math.max(0, rms - noiseFloorRef.current);
-            const normalizedMeter = isSilence ? 0 : Math.min(100, adjustedRms * 800); // Scale 0-100
-            setMicVolume(v => v * 0.8 + normalizedMeter * 0.2); // Smooth with 80/20 blend
+            // Visual Mic Volume - use RAW RMS (before gate) for responsive visual feedback
+            // This is separate from audio processing to ensure meter responds to speech
+            const micMeterFloor = micMeterFloorRef.current;
+            // Gradually adapt meter floor during calibration (visual only)
+            if (!isCalibrationDoneRef.current && calibrationSamplesRef.current.length > 3) {
+                const sorted = [...calibrationSamplesRef.current].sort((a, b) => a - b);
+                micMeterFloorRef.current = sorted[Math.floor(sorted.length * 0.1)] * 1.1; // 10th percentile + small margin
+            }
+            const meterRms = Math.max(0, rms - micMeterFloor);
+            // Scale: target ~0.05 RMS for full meter (speech typically 0.02-0.1 RMS)
+            const MIC_METER_TARGET = 0.04;
+            const normalizedMicMeter = Math.min(100, (meterRms / MIC_METER_TARGET) * 100);
+            setMicVolume(v => v * 0.75 + normalizedMicMeter * 0.25); // Responsive 75/25 blend
 
             if (pcmBuffer.length >= BUFFER_SIZE) {
                 // FIX: Don't drop data while waiting for connection
