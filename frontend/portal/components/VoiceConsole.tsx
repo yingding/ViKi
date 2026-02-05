@@ -376,8 +376,10 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
              }
              const rms = Math.sqrt(sum / dataArray.length);
              
-             // Visualization Gain (Boost small signals)
-             setIncomingVolume(Math.min(100, rms * 400 * 100)); // *100 for percentage
+             // Incoming meter: Calibrated multiplier + show buffering state
+             // Reduced from 400*100 to avoid saturation
+             const incomingMeter = isPlayingRef.current ? (rms * 200 * 100) : (rms * 50 * 100); // Lower when buffering
+             setIncomingVolume(v => v * 0.7 + Math.min(100, incomingMeter) * 0.3); // Smoother blend
              
              animationFrameRef.current = requestAnimationFrame(updateVisuals);
         };
@@ -416,13 +418,21 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
         }
         const stream = await navigator.mediaDevices.getUserMedia({ 
             audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
+                // DISABLED browser processing - we handle gain ourselves
+                // This gives VoiceLive cleaner audio to interpret
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
                 sampleRate: 24000 
             } 
         });
         console.log("[VoiceConsole] Microphone stream obtained.");
+        
+        // Log actual track settings for debugging sample rate issues
+        const audioTrack = stream.getAudioTracks()[0];
+        const trackSettings = audioTrack.getSettings();
+        console.log(`[VoiceConsole] Mic Track Settings: sampleRate=${trackSettings.sampleRate}, channelCount=${trackSettings.channelCount}`);
+        
         mediaStreamRef.current = stream;
 
         const source = ctx.createMediaStreamSource(stream);
@@ -443,8 +453,11 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
         const SAMPLE_RATE = 24000; 
         const BYTES_PER_SAMPLE = 2; // Int16
         const BUFFER_SIZE = (SAMPLE_RATE * CHUNK_SIZE_MS) / 1000 * BYTES_PER_SAMPLE; 
-        const DIGITAL_GAIN = 5.0; // Reduced from 15.0 to prevent clipping
-        const PRE_AMP = 1.0;      // Reduced from 2.0
+        const DIGITAL_GAIN = 3.0; // Reduced from 5.0 for cleaner signal to VoiceLive
+        const PRE_AMP = 1.0;
+        
+        // Soft limiter function (tanh-based) - preserves dynamics without harsh clipping
+        const softLimit = (x: number) => Math.tanh(x * 1.5) / Math.tanh(1.5);
 
         let pcmBuffer = new Uint8Array(0);
         let uploadQueue = Promise.resolve();
@@ -467,6 +480,13 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
             
             // Note: Attack/release should be implemented in a stateful manner
             // For now, we just use a very low threshold to avoid cutting speech
+            
+            // LOCAL BARGE-IN: If mic RMS is high while playing, stop playback immediately
+            const BARGE_IN_THRESHOLD = 0.02; // Detect speech
+            if (isPlayingRef.current && rms > BARGE_IN_THRESHOLD && audioContextRef.current) {
+                console.log(`[VoiceConsole] LOCAL BARGE-IN detected (RMS=${rms.toFixed(4)}). Stopping playback.`);
+                stopPlayback(audioContextRef.current);
+            }
 
             // Debug RMS occasionally
             if (Math.random() < 0.05) {
@@ -475,11 +495,11 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
 
             const int16 = new Int16Array(float32.length);
             for (let i = 0; i < float32.length; i++) {
-                // Apply gain and clip
-                // If silence, zero it out.
+                // Apply gain with SOFT LIMITER (no hard clipping)
                 const sample = isSilence ? 0 : float32[i];
-                const s = Math.max(-1, Math.min(1, sample * DIGITAL_GAIN * PRE_AMP));
-                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                const amplified = sample * DIGITAL_GAIN * PRE_AMP;
+                const limited = softLimit(amplified); // Soft limit instead of hard clamp
+                int16[i] = limited < 0 ? limited * 0x8000 : limited * 0x7FFF;
             }
 
             const newBuffer = new Uint8Array(pcmBuffer.length + int16.byteLength);
@@ -487,12 +507,17 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
             newBuffer.set(new Uint8Array(int16.buffer), pcmBuffer.length);
             pcmBuffer = newBuffer;
 
-            // Visual Mic Volume
-            // Use the calculated RMS, but if gated, show 0 to match reality
-            // We use a separate higher gain for visualization so the bar moves clearly even when speaking softly.
-            const VISUAL_GAIN = 50.0; 
-            const visualRms = isSilence ? 0 : (rms * VISUAL_GAIN);
-            setMicVolume(v => Math.max(v * 0.85, visualRms * 100)); // Smooth decay (0.85 per ~5ms frame)
+            // Visual Mic Volume - compute from POST-GAIN signal for accuracy
+            // This shows what VoiceLive actually receives
+            let postGainSumSq = 0;
+            for (let i = 0; i < int16.length; i++) {
+                const normalized = int16[i] / 32768.0;
+                postGainSumSq += normalized * normalized;
+            }
+            const postGainRms = Math.sqrt(postGainSumSq / int16.length);
+            const METER_GAIN = 150.0; // Calibrated for natural response
+            const meterValue = isSilence ? 0 : (postGainRms * METER_GAIN * 100);
+            setMicVolume(v => v * 0.7 + meterValue * 0.3); // Smoother with 70/30 blend
 
             if (pcmBuffer.length >= BUFFER_SIZE) {
                 // FIX: Don't drop data while waiting for connection
@@ -723,7 +748,7 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
       </div>
 
       <div className="flex justify-center">
-        {status === 'idle' || status === 'error' || isOffline ? (
+        {status === 'idle' || isOffline ? (
             <button
                 onClick={startSession}
                 disabled={!consultId || isOffline}

@@ -112,8 +112,8 @@ export async function handler(request: HttpRequest, context: InvocationContext):
                         onInputStarted: () => {
                              try {
                                 context.log(`[VoiceListen] InputStarted detected. Sending clear...`);
-                                // const msg = `data: ${JSON.stringify({ t: 'clear' })}\n\n`;
-                                // controller.enqueue(new TextEncoder().encode(msg));
+                                const msg = `data: ${JSON.stringify({ t: 'clear' })}\n\n`;
+                                controller.enqueue(new TextEncoder().encode(msg));
                              } catch (e) { /* ignore */ }
                         }
                      });
