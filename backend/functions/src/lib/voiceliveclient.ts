@@ -27,7 +27,7 @@ export async function createVoiceLiveSession(consult: StoredConsult, callbacks?:
   }
 
   // MOCK MODE: If endpoint contains "mock" or if forced
-  if (true || env.FOUNDRY_RESOURCE_ENDPOINT.includes('mock') || process.env.USE_MOCK_VOICE === 'true') {
+  if (env.FOUNDRY_RESOURCE_ENDPOINT.includes('mock') || process.env.USE_MOCK_VOICE === 'true') {
       logWithId('Using MOCK Session (forced or mock endpoint)');
       return createMockSession(callbacks);
   }

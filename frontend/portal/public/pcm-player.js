@@ -32,8 +32,16 @@ class PcmPlayer extends AudioWorkletProcessor {
       const output = outputs[0];
       if (!output || !output[0]) return true;
       
-      const channel = output[0];
+      const channel0 = output[0];
+      const channel1 = output[1]; // For stereo output
       this.frameCount++;
+      
+      // Queue overflow protection: Drop oldest if queue grows too large (>50 chunks = ~2s)
+      const MAX_QUEUE_SIZE = 50;
+      while (this.queue.length > MAX_QUEUE_SIZE) {
+          this.queue.shift(); // Drop oldest
+          this.port.postMessage({ type: 'debug', msg: `Queue overflow! Dropped oldest chunk. Size=${this.queue.length}` });
+      }
       
       // Heartbeat: Log every 500 frames (~10 seconds at 128 samples/frame @ 24kHz)
       if (this.frameCount % 500 === 0) {
@@ -42,19 +50,22 @@ class PcmPlayer extends AudioWorkletProcessor {
       
       // If not started or empty, output silence
       if (!this.started || this.queue.length === 0) {
-          channel.fill(0);
+          channel0.fill(0);
+          if (channel1) channel1.fill(0); // Stereo silence
           return true;
       }
   
       let offset = 0;
-      while (offset < channel.length && this.queue.length > 0) {
+      while (offset < channel0.length && this.queue.length > 0) {
           const chunk = this.queue[0];
           const remainingInChunk = chunk.length;
-          const spaceInOutput = channel.length - offset;
+          const spaceInOutput = channel0.length - offset;
           const toCopy = Math.min(remainingInChunk, spaceInOutput);
           
-          // Copy samples
-          channel.set(chunk.subarray(0, toCopy), offset);
+          // Copy samples to both channels (mono -> stereo)
+          const samples = chunk.subarray(0, toCopy);
+          channel0.set(samples, offset);
+          if (channel1) channel1.set(samples, offset); // Duplicate to right channel
           offset += toCopy;
           
           if (toCopy < remainingInChunk) {
@@ -69,9 +80,10 @@ class PcmPlayer extends AudioWorkletProcessor {
       // Track samples played
       this.totalSamplesPlayed += offset;
       
-      // If we ran out of data mid-frame, fill rest with silence
-      if (offset < channel.length) {
-          channel.fill(0, offset);
+      // If we ran out of data mid-frame, fill rest with silence (both channels)
+      if (offset < channel0.length) {
+          channel0.fill(0, offset);
+          if (channel1) channel1.fill(0, offset);
       }
       
       return true;

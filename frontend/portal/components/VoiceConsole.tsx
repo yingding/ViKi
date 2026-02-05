@@ -23,8 +23,15 @@ function base64ToUint8Array(base64: string) {
 class ReorderBuffer {
     private expected = 1; // Backend starts at 1
     private pending = new Map<number, Float32Array>();
+    private initialized = false; // Track if we've seen the first packet
     
     push(seq: number, data: Float32Array) {
+        // Auto-initialize expected from first packet to avoid deadlock
+        if (!this.initialized) {
+            this.expected = seq;
+            this.initialized = true;
+            console.log(`[ReorderBuffer] Auto-initialized expected to ${seq} from first packet`);
+        }
         this.pending.set(seq, data);
         console.log(`[ReorderBuffer] Push S=${seq}. Expected=${this.expected}. Pending=${this.pending.size}`);
     }
@@ -72,6 +79,7 @@ class ReorderBuffer {
     reset() {
         console.log(`[ReorderBuffer] RESET`);
         this.expected = 1;
+        this.initialized = false;
         this.pending.clear();
     }
 }
@@ -213,16 +221,20 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
           ctx.resume().catch(e => console.warn("Resume failed", e));
       }
 
-      // Decode Int16 -> Float32
+      // Decode Int16 -> Float32 with SOFT LIMITER (no hard clipping)
       const bufferCopy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       const int16 = new Int16Array(bufferCopy);
       
       const float32 = new Float32Array(int16.length);
-      const PLAYBACK_GAIN = 1.2; 
+      const PLAYBACK_GAIN = 1.0; // Reduced from 1.2 to avoid distortion
+      
+      // Soft limiter function (tanh-based) - preserves dynamics without harsh clipping
+      const softLimit = (x: number) => Math.tanh(x * 1.5) / Math.tanh(1.5);
       
       let sumSq = 0;
       for (let i = 0; i < int16.length; i++) {
-          float32[i] = Math.max(-1, Math.min(1, (int16[i] / 32768.0) * PLAYBACK_GAIN));
+          const raw = (int16[i] / 32768.0) * PLAYBACK_GAIN;
+          float32[i] = softLimit(raw); // Soft limit instead of hard clamp
           sumSq += float32[i] * float32[i];
       }
       
@@ -273,11 +285,12 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
             console.log(`[VoiceConsole] Sent ${readyChunks.length} chunks to Worklet. TotalBuffered=${bufferedSamplesRef.current}`);
         }
         
-        // Start Gating: Wait for ~100ms (2400 samples) before starting playback
-        const TARGET_LATENCY_SAMPLES = 24000 * 0.1; // 100ms
+        // Pre-roll / Warm-up: Wait for ~300ms (7200 samples) before starting playback
+        // This prevents chopped beginnings by ensuring buffer is primed
+        const TARGET_LATENCY_SAMPLES = 24000 * 0.3; // 300ms pre-roll
         
         if (!isPlayingRef.current && bufferedSamplesRef.current >= TARGET_LATENCY_SAMPLES) {
-            console.log(`[VoiceConsole] Buffer threshold reached (${bufferedSamplesRef.current}/${TARGET_LATENCY_SAMPLES}). Sending START command.`);
+            console.log(`[VoiceConsole] Pre-roll complete (${bufferedSamplesRef.current}/${TARGET_LATENCY_SAMPLES}). Sending START command.`);
             node.port.postMessage({ cmd: 'start' });
             isPlayingRef.current = true;
         }
@@ -303,6 +316,9 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
         const ctx = new AudioContextClass({ sampleRate: 24000 });
         audioContextRef.current = ctx;
         nextStartTimeRef.current = ctx.currentTime;
+        
+        // Log actual sample rate for debugging
+        console.log(`[VoiceConsole] AudioContext actual sampleRate: ${ctx.sampleRate}Hz, state: ${ctx.state}`);
         
         // Setup Analyser
         const analyser = ctx.createAnalyser();
@@ -438,16 +454,19 @@ export function VoiceConsole({ consultId, isOffline = false }: Props) {
             // Float32 -> Int16 conversion
             const float32 = new Float32Array(event.data);
             
-            // Noise Gate Calculation (RMS)
+            // Adaptive Noise Gate with attack/release to avoid choppy speech
             let sumSq = 0;
             for(let i=0; i<float32.length; i++) {
                 sumSq += float32[i] * float32[i];
             }
             const rms = Math.sqrt(sumSq / float32.length);
             
-            // Threshold: Lowered to 0.002 to avoid cutting off quiet speech
-            const NOISE_GATE_THRESHOLD = 0.002; 
+            // Adaptive threshold: Very low to avoid cutting speech
+            const NOISE_GATE_THRESHOLD = 0.001; // Lowered further
             const isSilence = rms < NOISE_GATE_THRESHOLD;
+            
+            // Note: Attack/release should be implemented in a stateful manner
+            // For now, we just use a very low threshold to avoid cutting speech
 
             // Debug RMS occasionally
             if (Math.random() < 0.05) {
